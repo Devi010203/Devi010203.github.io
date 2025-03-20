@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html>
+
+// 本示例基于Three.js库，用于展示凹凸面镜的光学成像过程。用户可以通过调整镜面参数和物体位置，观察光线的入射和反射情况，以及物体的像位置。
+// 本示例中的凹凸面镜模型是通过SphereGeometry创建的，通过调整镜面类型、曲率半径和镜面尺寸等参数，可以实现不同类型的镜面模型。
+// 光线的生成是通过在球缺表面生成均匀分布的采样点，然后根据物体和镜像位置计算入射和反射光线的方向，最后创建带箭头的光线对象。
+// 物体和镜像的位置计算是通过凹凸面镜成像公式计算得到的，根据物体位置和镜面类型，可以计算出镜像的位置。
+// 本示例中还包括了虚像的处理逻辑，当物体位置在凸面镜的焦点位置之后时，会出现虚像，此时需要对镜像位置进行修正。
+// 通过调整镜面参数和物体位置，用户可以观察到不同类型镜面的成像特点，包括凹面镜和凸面镜的成像规律，以及虚像的生成条件。
+// 本示例中还包括了光线的入射和反射处理，用户可以通过调整光线数量和物体位置，观察光线的入射和反射情况，以及物体的像位置。
+// 通过本示例，用户可以直观地了解凹凸面镜的成像原理，以及光线的入射和反射规律，帮助用户更好地理解光学成像过程。
+// 本示例可以作为教学辅助工具，用于展示凹凸面镜的光学成像过程，帮助用户更好地理解光学成像原理。
+//25.3.20
+
+<head>
+  <title>面镜光学仿真系统</title>
+  <style>
+    body {
+      margin: 0;
+      background: #1a1a1a;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    #controls {
+      width: 260px;
+      padding: 20px;
+      background: #2d2d2d;
+      border-radius: 12px;
+      margin-right: 30px;
+      overflow-y: auto;
+    }
+
+    .param-group {
+      margin: 20px 0;
+      padding: 15px;
+      background: #363636;
+      border-radius: 8px;
+    }
+
+    label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 8px 0;
+      font-size: 14px;
+      color: #cccccc;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 4px;
+      background: #404040;
+      margin: 10px 0;
+    }
+
+    select {
+      width: 100%;
+      padding: 8px;
+      background: #404040;
+      border: 1px solid #555;
+      border-radius: 4px;
+      color: white;
+    }
+
+    #canvas-container {
+      flex: 1;
+      background: black;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(132, 98, 98, 0.3);
+      height: calc(100vh - 40px);
+    }
+
+    .value-display {
+      color: #6ab0f3;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div id="controls">
+      <h2 style="margin-top: 0; color: #6ab0f3;">光学仿真控制</h2>
+      <div class="param-group">
+        <label>镜面类型
+          <select id="mirrorType">
+            <option value="concave">凹面镜</option>
+            <option value="convex">凸面镜</option>
+          </select>
+        </label>
+      </div>
+      <div class="param-group">
+        <label>
+          曲率半径 (m)
+          <span class="value-display" id="radiusValue">5.0</span>
+        </label>
+        <input type="range" id="radiusRange" min="3" max="10" step="0.5" value="5">
+      </div>
+      <div class="param-group">
+        <label>
+          镜面尺寸 (m)
+          <span class="value-display" id="sizeValue">3.0</span>
+        </label>
+        <input type="range" id="sizeRange" min="1" max="5" step="0.5" value="3">
+      </div>
+      <div class="param-group">
+        <label>
+          光线数量
+          <span class="value-display" id="rayCountValue">20</span>
+        </label>
+        <input type="range" id="rayCountRange" min="4" step="4" max="40" value="20">
+      </div>
+      <div class="param-group">
+        <label>
+          物距 (m)
+          <span class="value-display" id="objectDistanceValue">5</span>
+        </label>
+        <input type="range" id="objectDistanceRange" min="1" max="20" step="0.1" value="5">
+      </div>
+    </div>
+    <div id="canvas-container"></div>
+  </div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // DOM元素获取
+    const rSlider = document.getElementById('radiusRange');
+    const sizeSlider = document.getElementById('sizeRange');
+    const nSlider = document.getElementById('rayCountRange');
+    const distanceSlider = document.getElementById('objectDistanceRange');
+
+    let scene, camera, renderer, mirror, objectArrow, imageArrow, dashLine;
+    let params = {
+      radius: 5,
+      size: 3,
+      rayCount: 5,
+      objectDistance: 5,
+      mirrorType: 'concave'
+    };
+
+    function init() {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x1a1a1a);
+      camera = new THREE.PerspectiveCamera(
+        60,
+        (window.innerWidth - 300) / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(20, 0, 6);
+      camera.lookAt(0, 0, -3);
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth - 300, window.innerHeight);
+      // ...创建renderer后添加...
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.getElementById('canvas-container').appendChild(renderer.domElement);
+      const axesHelper = new THREE.AxesHelper(5);
+
+      //创建坐标系框架
+      //axesHelper.material.color.set(0xffffff);
+      //scene.add(axesHelper);
+
+      setupLights();
+      createMirror();
+      createObject();
+      createDashLine();
+      updateImage();
+      updateRays();
+      setupControls();
+      animate();
+    }
+
+    function setupLights() {
+      const ambient = new THREE.AmbientLight(0xffffff, 4);
+      const directional = new THREE.DirectionalLight(0xffffff, 5);
+      directional.position.set(0, 10, -2);
+      const backLight = new THREE.DirectionalLight(0x404040, 1);
+      backLight.position.set(-10, -5, -5); // 添加背光显示阴影
+      scene.add(ambient, directional, backLight);
+    }
+
+    function createMirror() {
+      if (mirror) scene.remove(mirror);
+      const radius = parseFloat(rSlider.value);
+      const size = parseFloat(sizeSlider.value);
+
+      // 统一计算开口角度（与generateUniformPoints保持一致）
+      const thetaLength = Math.asin(size / (2 * radius)) * 2;
+
+      // 创建球面几何体
+      let geometry = new THREE.SphereGeometry(
+        radius,
+        64, 32,        // widthSegments, heightSegments
+        0, Math.PI * 2, // phiStart, phiLength（水平方向完整圆）
+        0, thetaLength  // thetaStart, thetaLength（垂直开口角度）
+      );
+
+      // 初始旋转：将球体顶点转到-Z方向
+      geometry.rotateX(-Math.PI / 2);
+
+      // 根据镜面类型应用变换
+      if (params.mirrorType === 'concave') {
+        geometry.translate(0, 0, radius);  // 将顶点移动到原点
+        geometry.rotateZ(Math.PI);         // 翻转法线
+        geometry.rotateX(-Math.PI / 2);    // 凹面镜开口朝向+Z
+      } else {
+        geometry.translate(0, 0, radius);
+        geometry.rotateZ(Math.PI);
+        geometry.rotateX(Math.PI / 2);    // 凸面镜开口朝向-Z
+      }
+
+      // 创建材质
+      const material = new THREE.MeshPhysicalMaterial({
+        color: 0x4c9279,
+        metalness: 0.70,
+        roughness: 0.3,
+        side: THREE.DoubleSide // 允许双面渲染
+      });
+
+      // 创建镜面对象
+      mirror = new THREE.Mesh(geometry, material);
+      mirror.castShadow = true; // 允许投射阴影
+      mirror.receiveShadow = true; // 允许接收阴影
+      mirror.position.set(0, 0, -3); // 固定顶点位置（原vertexPosition变量）
+      mirror.rotation.x = Math.PI / 2; // 补偿旋转
+      scene.add(mirror);
+    }
+
+    // 在球缺上生成均匀的分圈点
+    function generateUniformPoints(mirrorType, radius, size, totalPoints) {
+      const thetaMax = Math.asin(size / (2 * radius)); // 最大极角
+      const layers = calculateLayers(totalPoints); // 获取分层配置
+      const points = [];
+
+      // 有效区域范围（保留边缘10%）
+      const thetaStart = thetaMax * 0.1;
+      const thetaRange = thetaMax * 0.8;
+
+      layers.forEach((layer, index) => {
+        // 计算当前层的极角（基于分层配置）
+        const theta = thetaStart + thetaRange * layer.radiusRatio;
+
+        // 生成环形分布
+        for (let i = 0; i < layer.points; i++) {
+          const phi = (i / layer.points) * Math.PI * 2; // 方位角均匀分布
+
+          // 球坐标转笛卡尔坐标
+          const x = radius * Math.sin(theta) * Math.cos(phi);
+          const y = radius * Math.cos(theta);
+          const z = radius * Math.sin(theta) * Math.sin(phi);
+
+          const point = new THREE.Vector3(x, y, z);
+          applyMirrorTransform(point, mirrorType, radius);
+          points.push(point);
+        }
+      });
+
+      //测试选项
+      //points.forEach(point => {
+      //  const dot = new THREE.Mesh(
+      //    new THREE.SphereGeometry(0.05),
+      //    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+      // );
+      //  dot.position.copy(point);
+      // scene.add(dot); // 临时显示采样点位置
+      //});
+
+      return points.slice(0, totalPoints);
+    }
+
+    // 分层策略（外层点数更多）
+    function calculateLayers(totalPoints) {
+      const layers = [];
+
+      if (totalPoints <= 10) {
+        // 单层：居中分布（半径比例60%）
+        layers.push({
+          points: totalPoints,
+          radiusRatio: 0.6 // 位于有效区域的60%位置
+        });
+      } else if (totalPoints <= 20) {
+        // 双层：外层60%点数，内层40%点数
+        const outerPoints = Math.round(totalPoints * 0.6);
+        layers.push({
+          points: outerPoints,
+          radiusRatio: 0.85 // 靠近外层（85%位置）
+        });
+        layers.push({
+          points: totalPoints - outerPoints,
+          radiusRatio: 0.35 // 靠近内层（35%位置）
+        });
+      } else {
+        // 三层：外->中->内（50%->30%->10%点数）
+        const layer3Points = Math.round(totalPoints * 0.5);
+        const layer2Points = Math.round(totalPoints * 0.3);
+        layers.push({
+          points: layer3Points,
+          radiusRatio: 0.90
+        });
+        layers.push({
+          points: layer2Points,
+          radiusRatio: 0.60
+        });
+        layers.push({
+          points: totalPoints - layer3Points - layer2Points,
+          radiusRatio: 0.30
+        });
+      }
+      return layers;
+    }
+
+    // 应用镜面变换（与createMirror保持一致）
+    function applyMirrorTransform(point, mirrorType, radius) {
+      const matrix = new THREE.Matrix4()
+        .makeTranslation(0, 0, -3)
+        .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+        .multiply(new THREE.Matrix4().makeRotationX(
+          mirrorType === 'concave' ? -Math.PI / 2 : Math.PI / 2
+        ))
+        .multiply(new THREE.Matrix4().makeRotationZ(Math.PI))
+        .multiply(new THREE.Matrix4().makeTranslation(0, 0, radius))
+        .multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+
+      point.applyMatrix4(matrix);
+    }
+
+    // 在全局变量中添加光线集合
+    let incidentRays = [];
+    let reflectedRays = [];
+    // 在全局变量中添加箭头集合
+    let incidentArrows = [];
+    let reflectedArrows = [];
+
+    // 创建光线
+    // 主要光线更新方法
+    function updateRays() {
+      // 清除旧光线
+      incidentRays.forEach(ray => scene.remove(ray));
+      reflectedRays.forEach(ray => scene.remove(ray));
+      incidentArrows.forEach(arrow => scene.remove(arrow));
+      reflectedArrows.forEach(arrow => scene.remove(arrow));
+      incidentRays = [];
+      reflectedRays = [];
+      incidentArrows = [];
+      reflectedArrows = [];
+
+      // 获取当前参数（传递正确的size参数）
+      const mirrorType = params.mirrorType;
+      const radius = params.radius;
+      const size = params.size; // 之前错误使用thetaLength变量
+      const totalPoints = params.rayCount;
+
+      // 生成采样点
+      const points = generateUniformPoints(mirrorType, radius, size, totalPoints);
+
+      // 获取物体和镜像位置
+      // 获取物体尖端位置（替代原来的底部位置）
+      const objectTipPos = objectArrow.userData.tipPosition.clone();
+      const imageTipPos = imageArrow?.userData?.tipPosition.clone();
+
+      // 创建带箭头的光线
+      points.forEach(point => {
+        // ============== 入射光线处理 ==============
+        const incidentDir = point.clone().sub(objectTipPos);
+        const incidentMid = objectTipPos.clone().add(incidentDir.clone().multiplyScalar(0.5));
+
+        // 完整入射线段（物体尖端 -> 镜面点）
+        const incidentLine = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints([objectTipPos, point]),
+          new THREE.LineBasicMaterial({ color: 0xffff00 })
+        );
+
+        // 中段箭头（方向：物体->镜面）
+        const incidentArrow = new THREE.ArrowHelper(
+          incidentDir.normalize(),
+          incidentMid,
+          Math.min(incidentDir.length() * 0.3, 1.5), // 动态箭头长度
+          0xffff00,
+          0.2, // 头部长度比例
+          0.15 // 头部宽度比例
+        );
+
+        scene.add(incidentLine, incidentArrow);
+        incidentRays.push(incidentLine);
+        incidentArrows.push(incidentArrow);
+
+        // ============== 反射光线处理 ==============
+        if (imageTipPos) {
+          const reflectDir = imageTipPos.clone().sub(point);
+          const reflectMid = point.clone().add(reflectDir.clone().multiplyScalar(0.5));
+
+          // 创建虚线材质（仅凸面镜虚像时）
+          const isConcave = params.mirrorType === 'concave';
+          const lineMaterial = isConcave ?
+            new THREE.LineBasicMaterial({ color: 0xff0000 }) :
+            new THREE.LineDashedMaterial({
+              color: 0xff0000,
+              dashSize: 0.2,
+              gapSize: 0.1
+            });
+
+          // 完整反射线段（镜面点 -> 像尖端）
+          const reflectedLine = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([point, imageTipPos]),
+            lineMaterial
+          );
+
+          // 计算虚线需要调用此方法
+          if (!isConcave) reflectedLine.computeLineDistances();
+
+          // 中段箭头（方向：镜面->像）
+          const reflectedArrow = new THREE.ArrowHelper(
+            reflectDir.normalize(),
+            reflectMid,
+            Math.min(reflectDir.length() * 0.3, 1.5),
+            0xff0000,
+            0.2,
+            0.15
+          );
+
+          scene.add(reflectedLine, reflectedArrow);
+          reflectedRays.push(reflectedLine);
+          reflectedArrows.push(reflectedArrow);
+        }
+      });
+    }
+
+
+    function createObject() {
+      if (objectArrow) scene.remove(objectArrow);
+      const distance = parseFloat(distanceSlider.value);
+
+      // 创建箭头时明确设置原点位置（尖端位置）
+      const origin = new THREE.Vector3(0, 0, distance); // 箭头底部位置
+      const direction = new THREE.Vector3(0, 1, 0); // 箭头朝向+Y方向
+      const length = 1.5; // 箭头总长度（与创建参数一致）
+
+      // 计算尖端位置：原点 + 方向 * 长度
+      const tipPosition = origin.clone().add(direction.clone().multiplyScalar(length));
+
+      // 修改后的箭头创建方式
+      objectArrow = new THREE.ArrowHelper(
+        direction.normalize(), // 方向向量需要归一化
+        origin,                 // 箭头底部位置
+        length,                 // 箭头长度
+        0xfaff1d,               // 颜色
+        0.3,                    // 头部长度比例
+        0.2                     // 头部宽度比例
+      );
+
+      // 存储尖端位置到自定义属性
+      objectArrow.userData = { tipPosition: tipPosition };
+
+      scene.add(objectArrow);
+    }
+
+    function createDashLine() {
+      //if (dashLine) scene.remove(dashLine);
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 50),
+        new THREE.Vector3(0, 0, -50)
+      ]);
+      const material = new THREE.LineDashedMaterial({
+        color: 0x00ff00,
+        dashSize: 0.2,
+        gapSize: 0.1
+      });
+      dashLine = new THREE.Line(geometry, material);
+      dashLine.computeLineDistances();
+      scene.add(dashLine);
+    }
+
+    function updateImage() {
+      if (imageArrow) scene.remove(imageArrow);
+
+      const radius = parseFloat(rSlider.value);
+      const u = parseFloat(distanceSlider.value);
+      const isConcave = params.mirrorType === 'concave';
+
+      // 获取镜面世界变换矩阵和顶点位置
+      const mirrorWorldMatrix = mirror.matrixWorld;
+      const mirrorVertex = new THREE.Vector3(0, 0, -3).applyMatrix4(mirrorWorldMatrix);
+
+      // 核心修正：计算镜面法线方向（指向光学开口方向）
+      const mirrorNormal = new THREE.Vector3(0, 0, 1).transformDirection(mirrorWorldMatrix);
+
+      // 焦距计算（凸面镜永远为负）
+      const f = isConcave ? radius / 2 : -radius / 2;
+
+      // 镜像公式计算（严格遵循符号规则）
+      let v = 0;
+      if (u !== f && u !== 0) {
+        v = (f * u) / (u - f);
+      }
+      const m = -v / u;
+
+      // 坐标系转换：物体实际位置
+      const objectPosition = new THREE.Vector3(0, 0, -3 + u).applyMatrix4(mirrorWorldMatrix);
+
+      // 镜像基准位置（未考虑虚像情况）
+      let imageBasePosition = new THREE.Vector3(0, 0, -3 + v).applyMatrix4(mirrorWorldMatrix);
+
+      // 虚像处理逻辑 -------------------------------------------------
+      const isVirtualImage = (!isConcave) || (isConcave && u < Math.abs(f));
+
+      if (isVirtualImage) {
+        // 虚像位置修正：沿法线反方向延伸
+        imageBasePosition = mirrorVertex.clone().add(
+          mirrorNormal.clone().multiplyScalar(-v * (isConcave ? 1 : -1)) // 凸面镜符号反转
+        );
+      }
+
+      // 强制位置验证 -------------------------------------------------
+      const positionVector = imageBasePosition.clone().sub(mirrorVertex);
+      const dotProduct = positionVector.dot(mirrorNormal);
+
+      // 当镜像出现在镜面后方时进行反射
+      if (dotProduct < 0) {
+        imageBasePosition = mirrorVertex.clone().add(
+          positionVector.reflect(mirrorNormal).multiplyScalar(isConcave ? 1 : -1) // 凸面镜特殊处理
+        );
+      }
+
+      // 创建镜像箭头时计算尖端位置
+      const direction = new THREE.Vector3(0, m > 0 ? 1 : -1, 0); // 箭头方向
+      const arrowLength = Math.min(Math.abs(1.5 * m), 3);
+
+      // 计算尖端位置
+      const imageTipPosition = imageBasePosition.clone().add(
+        direction.clone().multiplyScalar(arrowLength)
+      );
+
+      // 创建镜像箭头
+      imageArrow = new THREE.ArrowHelper(
+        direction.normalize(),
+        imageBasePosition,
+        arrowLength,
+        isVirtualImage ? 0xff6666 : 0x44ff44,
+        arrowLength * 0.2,  // 头部长度比例
+        arrowLength * 0.15   // 头部宽度比例
+      );
+
+      // 存储尖端位置到自定义属性
+      imageArrow.userData = { tipPosition: imageTipPosition };
+
+      // 虚像虚线处理
+      if (isVirtualImage) {
+        imageArrow.line.material = new THREE.LineDashedMaterial({
+          color: 0xff6666,
+          dashSize: 0.2,
+          gapSize: 0.1
+        });
+        imageArrow.line.computeLineDistances();
+      }
+
+      scene.add(imageArrow);
+    }
+
+    function setupControls() {
+      const syncSlider = (sliderId, valueId, paramName) => {
+        const slider = document.getElementById(sliderId);
+        const valueDisplay = document.getElementById(valueId);
+        slider.addEventListener('input', () => {
+          params[paramName] = parseFloat(slider.value);
+          valueDisplay.textContent = slider.value;
+          updateSimulation();
+        });
+      };
+
+      syncSlider('radiusRange', 'radiusValue', 'radius');
+      syncSlider('sizeRange', 'sizeValue', 'size');
+      syncSlider('rayCountRange', 'rayCountValue', 'rayCount');
+      syncSlider('objectDistanceRange', 'objectDistanceValue', 'objectDistance');
+
+      document.getElementById('mirrorType').addEventListener('change', () => {
+        params.mirrorType = document.getElementById('mirrorType').value;
+        updateSimulation();
+      });
+    }
+
+    function updateSimulation() {
+      createMirror();
+      createObject();
+      createDashLine();
+      updateImage();
+      updateRays();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = (window.innerWidth - 300) / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth - 300, window.innerHeight);
+    });
+
+    init();
+
+  </script>
+</body>
+
+</html>
