@@ -227,6 +227,8 @@
         roughness: 0.3,
         side: THREE.DoubleSide // 允许双面渲染
       });
+      material.transparent = true;//允许透明
+      material.transmission = 1;//透明度
 
       // 创建镜面对象
       mirror = new THREE.Mesh(geometry, material);
