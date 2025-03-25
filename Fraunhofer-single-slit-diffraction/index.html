@@ -41,14 +41,14 @@
     <div class="controls">
       <div class="slider-container">
         <label>波长λ: <span id="lambdaValue">525</span> nm</label>
-        <input type="range" id="lambda" min="390" max="760" value="525">
+        <input type="range" id="lambda" min="380" max="750" value="525">
       </div>
       <div class="slider-container">
         <label>缝宽b: <span id="bValue">0.10</span> mm</label>
-        <input type="range" id="b" min="10" max="500" value="100">
+        <input type="range" id="b" min="100" max="500" value="100">
       </div>
       <div class="slider-container">
-        <label>焦距f: <span id="fValue">10</span> cm</label>
+        <label>焦距f: <span id="fValue">25</span> cm</label>
         <input type="range" id="f" min="5" max="50" value="25">
       </div>
     </div>
@@ -92,7 +92,8 @@
         relativeIntensity = Math.pow(relativeIntensity, 0.4); // 增强可见性
 
         // 转换波长→色相
-        const hue = 360 * (lambda * 1e9 - 390) / 370;
+        // 修改后的色相计算
+        const hue = 270 - 270 * (lambda * 1e9 - 380) / (750 - 380); // 380-750nm → 270°→0° // 反向映射
         const brightness = Math.min(95, relativeIntensity * 50); // 亮度映射
 
         // 生成颜色
